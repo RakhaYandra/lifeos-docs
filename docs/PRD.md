@@ -5,82 +5,121 @@
 | Versi | 1.0.0 (2026-09-18) |
 | Acuan | BRD v1.0.0 (`BR-01`-`BR-14`) |
 
-## 1. Persona
+## 1. Product Overview
 
-Satu persona: **Pemilik** - individu yang mengelola hidupnya (tugas, uang, kesehatan, refleksi) lewat dashboard harian. Merangkap operator (backup/restore).
+LifeOS adalah aplikasi web + API personal operating system single-user: satu dashboard harian untuk tugas, goals, habit, keuangan, kesehatan, dan refleksi. Produk ini menggantikan 13 aplikasi terpisah (to-do, habit tracker, catatan keuangan, jurnal) dengan satu sistem terukur.
 
-## 2. Fitur
+Product Goals:
 
-### F-AUTH - Akun (BR-01)
+| ID | Goal |
+|---|---|
+| PG-01 | Rutinitas harian tercatat: tugas, habit, kas terlihat tiap pagi. |
+| PG-02 | Goals berjenjang terukur: annual -> quarterly -> monthly + milestone. |
+| PG-03 | Refleksi berbasis data: review dengan statistik otomatis. |
 
-- US-01: Sebagai pemilik, saya dapat register sekali dan login harian.
+## 2. Persona
+
+| Persona | Role | Goals | Needs |
+|---|---|---|---|
+| Pemilik | Kelola 13 area hidup via dashboard harian | Telemetri hidup utuh, progres terukur | Quick-add tugas, streak habit, status budget otomatis, statistik review |
+| Operator (pemilik merangkap) | Backup, restore, update | Data aman | Backup/restore file, runbook, tiket insiden |
+
+Single-user by design: satu persona, tanpa peran admin/manajer/staf.
+
+## 3. User Flows (alur inti)
+
+### Flow 1 — Rutinitas pagi (PG-01)
+
+1. Pemilik membuka Dashboard: 5 KPI + pengingat 7 hari dalam 1 panggilan.
+2. Pemilik quick-add tugas ke inbox, centang habit harian (streak + heatmap terupdate).
+3. Pemilik mencatat transaksi; budget menampilkan status safe/warning/over otomatis.
+
+### Flow 2 — Goals berjenjang (PG-02)
+
+1. Pemilik menyusun goal annual, lalu quarterly (parent wajib annual), lalu monthly.
+2. Pemilik menambah milestone dengan target date; flag overdue muncul otomatis.
+3. Progres = current/target (cap 0-100); update inline + DONE.
+
+### Flow 3 — Review mingguan (PG-03)
+
+1. Pemilik membuat review mingguan; API menghitung statistik otomatis (tasks due/done/overdue, habit checks, income/expense, goals done/active).
+2. Pemilik mengisi wins, challenges, lessons, next_focus.
+3. Period unik ditegakkan (duplikat ditolak).
+
+## 4. Fitur
+
+Prioritas tiap US mewarisi BR acuannya (Must/Should).
+
+### F-AUTH - Akun (BR-01) [Must]
+
+- US-01 [Must]: Sebagai pemilik, saya dapat register sekali dan login harian.
   - AC: register pertama 201; register kedua -> 403 `single_user_only`; login salah -> 401; token JWT 24 jam; token rusak -> auto-logout web.
 
-### F-DASH - Dashboard (BR-02)
+### F-DASH - Dashboard (BR-02) [Must]
 
-- US-02: Sebagai pemilik, saya melihat 5 KPI + pengingat 7 hari dalam 1 panggilan.
+- US-02 [Must]: Sebagai pemilik, saya melihat 5 KPI + pengingat 7 hari dalam 1 panggilan.
   - AC: tugas due/overdue/total, habit done/total, net cashflow IDR, goals aktif/at-risk, subs jatuh tempo 14 hari, reminders T-days.
 
-### F-TASK - Tugas & Proyek (BR-03)
+### F-TASK - Tugas & Proyek (BR-03) [Must]
 
-- US-03: Sebagai pemilik, saya dapat quick-add inbox, filter (Semua/Hari ini/Seminggu/status), DONE, hapus (konfirmasi), dan lihat progres proyek.
+- US-03 [Must]: Sebagai pemilik, saya dapat quick-add inbox, filter (Semua/Hari ini/Seminggu/status), DONE, hapus (konfirmasi), dan lihat progres proyek.
   - AC: status enum 6 nilai; completed auto-stamp `completed_at`; overdue = due < hari ini dan bukan completed/cancelled; PUT full-replace (field tak dikirim dikosongkan).
 
-### F-GOAL - Goals & Milestone (BR-04)
+### F-GOAL - Goals & Milestone (BR-04) [Must]
 
-- US-04: Sebagai pemilik, saya dapat menyusun goals annual -> quarterly -> monthly + milestone dengan target date.
+- US-04 [Must]: Sebagai pemilik, saya dapat menyusun goals annual -> quarterly -> monthly + milestone dengan target date.
   - AC: parent quarterly wajib annual; milestone overdue flag; progres = current/target (cap 0-100); update inline + DONE.
 
-### F-HABIT - Habit (BR-05)
+### F-HABIT - Habit (BR-05) [Must]
 
-- US-05: Sebagai pemilik, saya dapat centang habit harian dan melihat streak + heatmap 30 hari.
+- US-05 [Must]: Sebagai pemilik, saya dapat centang habit harian dan melihat streak + heatmap 30 hari.
   - AC: frekuensi daily/weekly; log upsert per (habit, tanggal); streak dihitung berurutan.
 
-### F-FIN - Keuangan (BR-06)
+### F-FIN - Keuangan (BR-06) [Must]
 
-- US-06: Sebagai pemilik, saya dapat mencatat transaksi, memantau budget dengan status otomatis, dan melihat renewal langganan.
+- US-06 [Must]: Sebagai pemilik, saya dapat mencatat transaksi, memantau budget dengan status otomatis, dan melihat renewal langganan.
   - AC: budget status safe (< warn) / warning (< 100) / over (>= 100) dari settings; subs annual_cost + days_until; summary bulan income/expense/net (seed Sep: in 10jt/out 2665999/net 7334001).
 
-### F-HEALTH - Sehat & Belajar (BR-07)
+### F-HEALTH - Sehat & Belajar (BR-07) [Should]
 
-- US-07: Sebagai pemilik, saya dapat mencatat health harian (sleep/mood/weight), workout, progres learning, dan status bacaan.
+- US-07 [Should]: Sebagai pemilik, saya dapat mencatat health harian (sleep/mood/weight), workout, progres learning, dan status bacaan.
   - AC: energy/mood skala 1-5; health upsert per tanggal; learning progress 0-100; reading rating 1-5.
 
-### F-REVIEW - Review (BR-08)
+### F-REVIEW - Review (BR-08) [Should]
 
-- US-08: Sebagai pemilik, saya dapat menulis review mingguan/bulanan/tahunan dengan statistik otomatis.
+- US-08 [Should]: Sebagai pemilik, saya dapat menulis review mingguan/bulanan/tahunan dengan statistik otomatis.
   - AC: stats (tasks due/done/overdue, habit checks, income/expense, goals done/active) dihitung API saat create/update; period unik.
 
-### F-TRAVEL - Travel (BR-09)
+### F-TRAVEL - Travel (BR-09) [Should]
 
-- US-09: Sebagai pemilik, saya dapat merencanakan trip (itinerary + packing) dan memantau budget vs aktual.
+- US-09 [Should]: Sebagai pemilik, saya dapat merencanakan trip (itinerary + packing) dan memantau budget vs aktual.
   - AC: actual_cost = SUM biaya itinerary; item itinerary/packing bisa toggle/hapus.
 
-### F-DECIDE - Keputusan (BR-10)
+### F-DECIDE - Keputusan (BR-10) [Should]
 
-- US-10: Sebagai pemilik, saya dapat membandingkan opsi dengan skor berbobot.
+- US-10 [Should]: Sebagai pemilik, saya dapat membandingkan opsi dengan skor berbobot.
   - AC: ranking = SUM(weight x score); rekomendasi = skor tertinggi; nilai upsert per (opsi, kriteria).
 
-### F-MANAGE - Aset & Relasi (BR-11)
+### F-MANAGE - Aset & Relasi (BR-11) [Should]
 
-- US-11: Sebagai pemilik, saya dapat memantau tabungan (progres + ETA), aset (flag garansi), wishlist, dokumen (days_until), dan kontak (follow-up).
+- US-11 [Should]: Sebagai pemilik, saya dapat memantau tabungan (progres + ETA), aset (flag garansi), wishlist, dokumen (days_until), dan kontak (follow-up).
   - AC: ETA bulan = sisa/monthly_contribution; followup_due = last_contact + followup_days; tombol SAPA = touch hari ini. Halaman Aset read-only (tanpa create).
 
-### F-REMIND - Pengingat & Kalender (BR-12)
+### F-REMIND - Pengingat & Kalender (BR-12) [Should]
 
-- US-12: Sebagai pemilik, saya dapat mencatat pengingat berulang dan melihat agregat kalender bulanan.
+- US-12 [Should]: Sebagai pemilik, saya dapat mencatat pengingat berulang dan melihat agregat kalender bulanan.
   - AC: recurrence none/daily/weekly/monthly/yearly -> next occurrence; kalender frontend-only (simbol tugas/pengingat/subs/milestone, navigasi bulan).
 
-### F-DATA - Analitik (BR-13)
+### F-DATA - Analitik (BR-13) [Should]
 
-- US-13: Sebagai pemilik, saya mendapat marts parquet + 4 grafik + laporan quality JSON tiap Senin 06:00.
+- US-13 [Should]: Sebagai pemilik, saya mendapat marts parquet + 4 grafik + laporan quality JSON tiap Senin 06:00.
   - AC: quality gate menggagalkan run (tabel kosong, orphan, amount <= 0, tanggal rusak, duplikat); timer systemd + cron.example; DB pribadi read-only, folder work/ tak di-commit.
 
-### F-OPS - Operasional (BR-14)
+### F-OPS - Operasional (BR-14) [Should]
 
-- US-14: Sebagai operator, saya punya runbook, SLA, troubleshooting terverifikasi, backup/restore file, dan tiket insiden.
+- US-14 [Should]: Sebagai operator, saya punya runbook, SLA, troubleshooting terverifikasi, backup/restore file, dan tiket insiden.
   - AC: backup copy file + rotasi 7; restore menolak bila API jalan; 10 tiket tercatat (9 closed, 1 open).
 
-## 3. Non-Goals (v1.0)
+## 5. Non-Goals (v1.0)
 
 Multi-user, deploy produksi, performance testing, aplikasi mobile, Docker.

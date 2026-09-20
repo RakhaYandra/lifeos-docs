@@ -7,106 +7,161 @@
 
 ## 1. Arsitektur
 
+```text
+Browser (web :5174)
+  |
+  v
+API Go/Gin (:8080) — handler -> service -> repository (database/sql, tanpa ORM - ADR-001)
+  |
+  v
+SQLite file lokal lifeos.db (migrasi goose 00001-00015, modernc.org/sqlite pure-Go)
+```
+
 - Backend Go 1.27/Gin + SQLite (`modernc.org/sqlite`, pure-Go tanpa CGO) + JWT (repo `lifeos`). Tanpa Docker by design; DB file lokal `lifeos.db`.
 - Layer: handler (Gin binding) -> service (logika: overdue, streak, utilisasi, ranking, statistik) -> repository (`database/sql` tanpa ORM - ADR-001) -> SQLite. Migrasi goose (15 file 00001-00015).
 - Frontend Vite + React 19 + TS + Tailwind v4 (repo `lifeos-web`). Tanpa react-router: state `Page` 13 halaman + Login, pill nav.
 - QA: Newman 75 cek + Playwright 26 test + `tools/*.py` (repo `lifeos-qa`).
 - Data: ETL Python read-only -> DuckDB parquet + matplotlib PNG + timer mingguan (repo `lifeos-data`).
 - Ops: runbook/SLA/tiket + script backup/restore file (repo `lifeos-ops`).
-- Env: `PORT=8080`, `DB_PATH=lifeos.db`, `JWT_SECRET` (>= 32 char di prod), `FRONTEND_URL=http://localhost:5174`.
 - Auth: single-user; `POST /v1/auth/register` hanya akun pertama (kedua -> 403 `single_user_only`); JWT 24 jam (claim `sub=userID`); selain `/healthz` + auth, semua endpoint wajib Bearer (401 `unauthorized`); CORS echo `Origin == FRONTEND_URL`.
 - Konvensi: PUT = full-replace (field tak dikirim dikosongkan); semua data di-scope `user_id`; zona Asia/Jakarta.
 
+### 1.1 Konfigurasi & Ports
+
+| Key | Nilai / Contoh | Keterangan |
+|---|---|---|
+| `PORT` | `8080` | Port API |
+| `DB_PATH` | `lifeos.db` | File SQLite lokal (tidak di-commit) |
+| `JWT_SECRET` | min 32 char | Secret JWT produksi (secret, tidak di-commit) |
+| `FRONTEND_URL` | `http://localhost:5174` | Origin web yang diizinkan CORS |
+| `VITE_API_URL` | `http://localhost:8080` | Base URL API di web |
+| `LIFEOS_DB` | (opsional) | Override path DB untuk data pribadi (ETL) |
+
+| Service | Port |
+|---|---|
+| API | 8080 |
+| Web (dev) | 5174 |
+
 ## 2. Endpoint API (per `internal/handler/router.go`)
 
-| ID | Method & Path | Fungsi |
-|---|---|---|
-| FS-01 | `GET /healthz` | Publik. 200 `{"status":"ok"}` |
-| FS-02 | `POST /v1/auth/register` | Publik. Akun pertama; validasi email + password min 8, bcrypt |
-| FS-03 | `POST /v1/auth/login` | Publik. -> `{token}` JWT 24 jam |
-| FS-04 | `GET /v1/me` | Profil sendiri |
-| FS-05 | `GET /v1/settings`, `PUT /v1/settings` | Baca/ganti (req: active_year, currency) |
-| FS-06 | `GET /v1/life-areas` | 8 area (seed) |
-| FS-07 | `GET /v1/dashboard` | Agregat home: tasks due/overdue, habits, finance, goals, subs, reminders |
-| FS-08 | `GET,POST /v1/projects` | List + progress / buat (req: name) |
-| FS-09 | `GET,PUT,DELETE /v1/projects/:id` | Detail / update / hapus |
-| FS-10 | `GET,POST /v1/tasks` | List (?status, ?project_id; overdue/days_remaining) / buat inbox (req: title) |
-| FS-11 | `GET /v1/tasks/today` | Due hari ini (WIB) |
-| FS-12 | `GET /v1/tasks/week` | Seminggu (?start, default hari ini) |
-| FS-13 | `GET,PUT,DELETE /v1/tasks/:id` | Detail / update (completed auto-stamp) / hapus |
-| FS-14 | `GET,POST /v1/goals` | List (?level annual/quarterly/monthly, cascade parent) / buat (req: title) |
-| FS-15 | `GET,PUT,DELETE /v1/goals/:id` | Detail / update / hapus |
-| FS-16 | `GET,POST /v1/milestones` | List (?goal_id, ?project_id, flag overdue) / buat (req: title, target_date) |
-| FS-17 | `GET /v1/milestones/upcoming` | Terdekat (?within_days=14) |
-| FS-18 | `GET,PUT,DELETE /v1/milestones/:id` | Detail / update (completed auto-stamp) / hapus |
-| FS-19 | `GET,POST /v1/habits` | List + streak / buat (req: name) |
-| FS-20 | `GET /v1/habits/streaks` | Semua streak |
-| FS-21 | `GET,PUT,DELETE /v1/habits/:id` | Detail / update / hapus |
-| FS-22 | `POST /v1/habits/:id/log` | Centang (default hari ini WIB; body date/done) |
-| FS-23 | `GET /v1/habits/:id/logs` | Riwayat (?from, ?to; heatmap) |
-| FS-24 | `GET,POST /v1/transactions` | List (?type, ?category, ?year, ?month) / catat (req: date, type, category, amount) |
-| FS-25 | `GET /v1/transactions/summary` | Ringkasan bulan |
-| FS-26 | `GET,PUT,DELETE /v1/transactions/:id` | Detail / update / hapus |
-| FS-27 | `GET,POST /v1/budgets` | List + aktual otomatis (?year, ?month) / buat (req: year, month, category, amount) |
-| FS-28 | `GET,PUT,DELETE /v1/budgets/:id` | Detail / update / hapus |
-| FS-29 | `GET,POST /v1/subscriptions` | List + annual_cost + days_until / tambah (req: service, next_billing) |
-| FS-30 | `GET /v1/subscriptions/upcoming` | Renewal (?within_days=14) |
-| FS-31 | `GET,PUT,DELETE /v1/subscriptions/:id` | Detail / update / hapus |
-| FS-32 | `GET,PUT /v1/health-logs` | List (?from, ?to) / upsert per tanggal (req: date) |
-| FS-33 | `GET,POST /v1/workouts` | List (?from, ?to) / catat (req: date, type) |
-| FS-34 | `GET,POST /v1/learning` | List / tambah (req: topic) |
-| FS-35 | `PUT,DELETE /v1/learning/:id` | Update / hapus (tanpa GET detail) |
-| FS-36 | `GET,POST /v1/reading` | List / tambah (req: title) |
-| FS-37 | `PUT,DELETE /v1/reading/:id` | Update / hapus (tanpa GET detail) |
-| FS-38 | `GET,POST /v1/reviews` | List + auto-stat / buat mingguan (req: week_start) |
-| FS-39 | `GET,PUT,DELETE /v1/reviews/:id` | Detail / update (hitung ulang stats) / hapus |
-| FS-40 | `GET,POST /v1/monthly-reviews` | List / buat (req: period YYYY-MM) |
-| FS-41 | `GET,PUT,DELETE /v1/monthly-reviews/:id` | Detail / update / hapus |
-| FS-42 | `GET,POST /v1/yearly-reviews` | List / buat (req: period YYYY) |
-| FS-43 | `GET,PUT,DELETE /v1/yearly-reviews/:id` | Detail / update / hapus |
-| FS-44 | `GET,POST /v1/trips` | List + actual_cost / buat (req: name, start_date, end_date) |
-| FS-45 | `GET,PUT,DELETE /v1/trips/:id` | Detail (+itinerary+packing) / update / hapus |
-| FS-46 | `POST /v1/trips/:id/itinerary` | Tambah item (req: date, activity) |
-| FS-47 | `PUT,DELETE /v1/trips/:id/itinerary/:iid` | Toggle / hapus item |
-| FS-48 | `POST /v1/trips/:id/packing` | Tambah item (req: item) |
-| FS-49 | `PUT,DELETE /v1/trips/:id/packing/:pid` | Toggle / hapus item |
-| FS-50 | `GET,POST /v1/decisions` | List + ranking terbobot / buat (req: title) |
-| FS-51 | `GET,DELETE /v1/decisions/:id` | Detail + ranking / hapus (tanpa PUT) |
-| FS-52 | `POST /v1/decisions/:id/options` | Tambah opsi (req: name) |
-| FS-53 | `DELETE /v1/decisions/:id/options/:oid` | Hapus opsi |
-| FS-54 | `POST /v1/decisions/:id/options/:oid/marks` | Nilai opsi upsert per kriteria (req: criterion, score; weight opsional) |
-| FS-55 | `GET,POST /v1/savings` | List + progres + ETA / tambah (req: name, target_amount) |
-| FS-56 | `PUT,DELETE /v1/savings/:id` | Update / hapus (tanpa GET detail) |
-| FS-57 | `GET,POST /v1/assets` | List + flag garansi / tambah (req: name) |
-| FS-58 | `DELETE /v1/assets/:id` | Hapus (tanpa PUT/GET detail) |
-| FS-59 | `GET,POST /v1/wishlist` | List + progres / tambah (req: item) |
-| FS-60 | `DELETE /v1/wishlist/:id` | Hapus |
-| FS-61 | `GET,POST /v1/documents` | List + days_until / tambah (req: item, expiry_date) |
-| FS-62 | `GET /v1/documents/upcoming` | Hampir kedaluwarsa |
-| FS-63 | `DELETE /v1/documents/:id` | Hapus |
-| FS-64 | `GET,POST /v1/contacts` | List + followup_due / tambah (req: name) |
-| FS-65 | `GET /v1/contacts/followups` | Butuh follow-up |
-| FS-66 | `POST /v1/contacts/:id/touch` | Catat kontak hari ini |
-| FS-67 | `DELETE /v1/contacts/:id` | Hapus |
-| FS-68 | `GET,POST /v1/reminders` | List + next/days_until / tambah (req: title, date) |
-| FS-69 | `GET /v1/reminders/upcoming` | Terdekat (?within_days=14) |
-| FS-70 | `GET,PUT,DELETE /v1/reminders/:id` | Detail / update / hapus |
+| ID | Method & Path | Fungsi | Spec |
+|---|---|---|---|
+| FS-01 | `GET /healthz` | Publik. 200 `{"status":"ok"}`| `swagger.yaml:L102` |
+| FS-02 | `POST /v1/auth/register` | Publik. Akun pertama; validasi email + password min 8, bcrypt| `swagger.yaml:L108` |
+| FS-03 | `POST /v1/auth/login` | Publik. -> `{token}` JWT 24 jam| `swagger.yaml:L120` |
+| FS-04 | `GET /v1/me` | Profil sendiri| `swagger.yaml:L131` |
+| FS-05 | `GET /v1/settings`, `PUT /v1/settings` | Baca/ganti (req: active_year, currency)| `swagger.yaml:L139` |
+| FS-06 | `GET /v1/life-areas` | 8 area (seed)| `swagger.yaml:L156` |
+| FS-07 | `GET /v1/dashboard` | Agregat home: tasks due/overdue, habits, finance, goals, subs, reminders| `swagger.yaml:L624` |
+| FS-08 | `GET,POST /v1/projects` | List + progress / buat (req: name)| `swagger.yaml:L163` |
+| FS-09 | `GET,PUT,DELETE /v1/projects/:id` | Detail / update / hapus| `swagger.yaml:L180` |
+| FS-10 | `GET,POST /v1/tasks` | List (?status, ?project_id; overdue/days_remaining) / buat inbox (req: title)| `swagger.yaml:L210` |
+| FS-11 | `GET /v1/tasks/today` | Due hari ini (WIB)| `swagger.yaml:L227` |
+| FS-12 | `GET /v1/tasks/week` | Seminggu (?start, default hari ini)| `swagger.yaml:L234` |
+| FS-13 | `GET,PUT,DELETE /v1/tasks/:id` | Detail / update (completed auto-stamp) / hapus| `swagger.yaml:L241` |
+| FS-14 | `GET,POST /v1/goals` | List (?level annual/quarterly/monthly, cascade parent) / buat (req: title)| `swagger.yaml:L271` |
+| FS-15 | `GET,PUT,DELETE /v1/goals/:id` | Detail / update / hapus| `swagger.yaml:L288` |
+| FS-16 | `GET,POST /v1/milestones` | List (?goal_id, ?project_id, flag overdue) / buat (req: title, target_date)| `swagger.yaml:L318` |
+| FS-17 | `GET /v1/milestones/upcoming` | Terdekat (?within_days=14)| `swagger.yaml:L344` |
+| FS-18 | `GET,PUT,DELETE /v1/milestones/:id` | Detail / update (completed auto-stamp) / hapus| `swagger.yaml:L351` |
+| FS-19 | `GET,POST /v1/habits` | List + streak / buat (req: name)| `swagger.yaml:L387` |
+| FS-20 | `GET /v1/habits/streaks` | Semua streak| `swagger.yaml:L404` |
+| FS-21 | `GET,PUT,DELETE /v1/habits/:id` | Detail / update / hapus| `swagger.yaml:L411` |
+| FS-22 | `POST /v1/habits/:id/log` | Centang (default hari ini WIB; body date/done)| `swagger.yaml:L441` |
+| FS-23 | `GET /v1/habits/:id/logs` | Riwayat (?from, ?to; heatmap)| `swagger.yaml:L459` |
+| FS-24 | `GET,POST /v1/transactions` | List (?type, ?category, ?year, ?month) / catat (req: date, type, category, amount)| `swagger.yaml:L469` |
+| FS-25 | `GET /v1/transactions/summary` | Ringkasan bulan| `swagger.yaml:L486` |
+| FS-26 | `GET,PUT,DELETE /v1/transactions/:id` | Detail / update / hapus| `swagger.yaml:L493` |
+| FS-27 | `GET,POST /v1/budgets` | List + aktual otomatis (?year, ?month) / buat (req: year, month, category, amount)| `swagger.yaml:L523` |
+| FS-28 | `GET,PUT,DELETE /v1/budgets/:id` | Detail / update / hapus| `swagger.yaml:L540` |
+| FS-29 | `GET,POST /v1/subscriptions` | List + annual_cost + days_until / tambah (req: service, next_billing)| `swagger.yaml:L570` |
+| FS-30 | `GET /v1/subscriptions/upcoming` | Renewal (?within_days=14)| `swagger.yaml:L587` |
+| FS-31 | `GET,PUT,DELETE /v1/subscriptions/:id` | Detail / update / hapus| `swagger.yaml:L594` |
+| FS-32 | `GET,PUT /v1/health-logs` | List (?from, ?to) / upsert per tanggal (req: date)| `swagger.yaml:L631` |
+| FS-33 | `GET,POST /v1/workouts` | List (?from, ?to) / catat (req: date, type)| `swagger.yaml:L658` |
+| FS-34 | `GET,POST /v1/learning` | List / tambah (req: topic)| `swagger.yaml:L683` |
+| FS-35 | `PUT,DELETE /v1/learning/:id` | Update / hapus (tanpa GET detail)| `swagger.yaml:L708` |
+| FS-36 | `GET,POST /v1/reading` | List / tambah (req: title)| `swagger.yaml:L734` |
+| FS-37 | `PUT,DELETE /v1/reading/:id` | Update / hapus (tanpa GET detail)| `swagger.yaml:L758` |
+| FS-38 | `GET,POST /v1/reviews` | List + auto-stat / buat mingguan (req: week_start)| `swagger.yaml:L784` |
+| FS-39 | `GET,PUT,DELETE /v1/reviews/:id` | Detail / update (hitung ulang stats) / hapus| `swagger.yaml:L808` |
+| FS-40 | `GET,POST /v1/monthly-reviews` | List / buat (req: period YYYY-MM)| `swagger.yaml:L843` |
+| FS-41 | `GET,PUT,DELETE /v1/monthly-reviews/:id` | Detail / update / hapus| `swagger.yaml:L867` |
+| FS-42 | `GET,POST /v1/yearly-reviews` | List / buat (req: period YYYY)| `swagger.yaml:L902` |
+| FS-43 | `GET,PUT,DELETE /v1/yearly-reviews/:id` | Detail / update / hapus| `swagger.yaml:L927` |
+| FS-44 | `GET,POST /v1/trips` | List + actual_cost / buat (req: name, start_date, end_date)| `swagger.yaml:L962` |
+| FS-45 | `GET,PUT,DELETE /v1/trips/:id` | Detail (+itinerary+packing) / update / hapus| `swagger.yaml:L988` |
+| FS-46 | `POST /v1/trips/:id/itinerary` | Tambah item (req: date, activity)| `swagger.yaml:L1025` |
+| FS-47 | `PUT,DELETE /v1/trips/:id/itinerary/:iid` | Toggle / hapus item| gap (tak ada di swagger) |
+| FS-48 | `POST /v1/trips/:id/packing` | Tambah item (req: item)| `swagger.yaml:L1045` |
+| FS-49 | `PUT,DELETE /v1/trips/:id/packing/:pid` | Toggle / hapus item| gap (tak ada di swagger) |
+| FS-50 | `GET,POST /v1/decisions` | List + ranking terbobot / buat (req: title)| `swagger.yaml:L1064` |
+| FS-51 | `GET,DELETE /v1/decisions/:id` | Detail + ranking / hapus (tanpa PUT)| `swagger.yaml:L1086` |
+| FS-52 | `POST /v1/decisions/:id/options` | Tambah opsi (req: name)| `swagger.yaml:L1104` |
+| FS-53 | `DELETE /v1/decisions/:id/options/:oid` | Hapus opsi| gap (tak ada di swagger) |
+| FS-54 | `POST /v1/decisions/:id/options/:oid/marks` | Nilai opsi upsert per kriteria (req: criterion, score; weight opsional)| `swagger.yaml:L1122` |
+| FS-55 | `GET,POST /v1/savings` | List + progres + ETA / tambah (req: name, target_amount)| `swagger.yaml:L1143` |
+| FS-56 | `PUT,DELETE /v1/savings/:id` | Update / hapus (tanpa GET detail)| `swagger.yaml:L1168` |
+| FS-57 | `GET,POST /v1/assets` | List + flag garansi / tambah (req: name)| `swagger.yaml:L1195` |
+| FS-58 | `DELETE /v1/assets/:id` | Hapus (tanpa PUT/GET detail)| `swagger.yaml:L1219` |
+| FS-59 | `GET,POST /v1/wishlist` | List + progres / tambah (req: item)| `swagger.yaml:L1228` |
+| FS-60 | `DELETE /v1/wishlist/:id` | Hapus| `swagger.yaml:L1252` |
+| FS-61 | `GET,POST /v1/documents` | List + days_until / tambah (req: item, expiry_date)| `swagger.yaml:L1261` |
+| FS-62 | `GET /v1/documents/upcoming` | Hampir kedaluwarsa| `swagger.yaml:L1284` |
+| FS-63 | `DELETE /v1/documents/:id` | Hapus| `swagger.yaml:L1291` |
+| FS-64 | `GET,POST /v1/contacts` | List + followup_due / tambah (req: name)| `swagger.yaml:L1300` |
+| FS-65 | `GET /v1/contacts/followups` | Butuh follow-up| `swagger.yaml:L1323` |
+| FS-66 | `POST /v1/contacts/:id/touch` | Catat kontak hari ini| `swagger.yaml:L1330` |
+| FS-67 | `DELETE /v1/contacts/:id` | Hapus| `swagger.yaml:L1339` |
+| FS-68 | `GET,POST /v1/reminders` | List + next/days_until / tambah (req: title, date)| `swagger.yaml:L1348` |
+| FS-69 | `GET /v1/reminders/upcoming` | Terdekat (?within_days=14)| `swagger.yaml:L1372` |
+| FS-70 | `GET,PUT,DELETE /v1/reminders/:id` | Detail / update / hapus| `swagger.yaml:L1379` |
 
-Catatan: `api/swagger.yaml` tidak mendokumentasikan `PUT/DELETE itinerary/:iid`, `PUT/DELETE packing/:pid`, `DELETE options/:oid` (gap dokumentasi, fungsi tetap berjalan).
+Detail request/response per endpoint: `api/swagger.yaml` repo `lifeos` (lihat kolom Spec; nomor baris `L…`).
+
+Catatan: `api/swagger.yaml` tidak mendokumentasikan `PUT/DELETE itinerary/:iid` (FS-47), `PUT/DELETE packing/:pid` (FS-49), `DELETE options/:oid` (FS-53) — lihat kolom Spec `gap` (fungsi tetap berjalan).
 
 ## 3. Model Data (SQLite, goose 00001-00015)
 
-- `users(id, email UNIQUE, password_hash, created_at)`; `settings(user_id PK, active_year, currency, budget_warn_pct, goal_warn_pct)`; `life_areas(id, name UNIQUE)` (8 seed).
-- `projects(id, user_id, name, life_area_id NULL, goal_id, status, start/end/completed_at, notes)`; `tasks(id, user_id, project_id SET NULL, goal_id, life_area_id, title, status, priority, due_date, completed_at, effort_est/actual)`.
-- `goals(id, user_id, level, parent_id self-ref, life_area_id, title, metric, target/current_value, status, target_date)`; `milestones(id, user_id, goal_id, project_id, title, target_date, status, completed_at, notes)`.
-- `habits(id, user_id, name, frequency, target_per_week, start_date, active)` + `habit_logs(habit_id, date PK komposit, done)`.
-- `transactions(id, user_id, date, type, category, description, amount > 0, account, recurring)`; `budgets(id, user_id, year, month, category, amount > 0, UNIQUE per kategori-bulan)`; `subscriptions(id, user_id, service, category, cost >= 0, frequency, next_billing, active)`.
-- `health_logs(id, user_id, date UNIQUE, weight, sleep, water, energy, mood, notes)`; `workouts(id, user_id, date, type, duration_min, intensity, calories, notes)`; `learning_entries(...)`; `reading_entries(...)`.
-- `reviews/monthly_reviews/yearly_reviews(id, user_id, week_start/period UNIQUE, stats JSON, wins, challenges, lessons, next_focus)`.
-- `reminders(id, user_id, title, date, recurrence, notes)`.
+- `users(id INTEGER PK, email TEXT UNIQUE, password_hash TEXT, created_at TEXT)`; `settings(user_id INTEGER PK FK->users, active_year INTEGER, currency TEXT, budget_warn_pct REAL, goal_warn_pct REAL)`; `life_areas(id INTEGER PK, name TEXT UNIQUE)` (8 seed).
+- `projects(id INTEGER PK, user_id INTEGER, name TEXT, life_area_id INTEGER NULL, goal_id INTEGER NULL, status TEXT, start_date/end_date/completed_at TEXT NULL, notes TEXT)`; `tasks(id INTEGER PK, user_id INTEGER, project_id INTEGER NULL ON DELETE SET NULL, goal_id INTEGER NULL, life_area_id INTEGER NULL, title TEXT, status TEXT, priority TEXT, due_date TEXT NULL, completed_at TEXT NULL, effort_est/actual REAL NULL)`.
+- `goals(id INTEGER PK, user_id INTEGER, level TEXT, parent_id INTEGER NULL self-ref ON DELETE CASCADE, life_area_id INTEGER NULL, title TEXT, metric TEXT NULL, target_value/current_value REAL, status TEXT, target_date TEXT NULL)`; `milestones(id INTEGER PK, user_id INTEGER, goal_id INTEGER NULL, project_id INTEGER NULL, title TEXT, target_date TEXT, status TEXT, completed_at TEXT NULL, notes TEXT NULL)`.
+- `habits(id INTEGER PK, user_id INTEGER, name TEXT, frequency TEXT, target_per_week INTEGER, start_date TEXT, active INTEGER)` + `habit_logs(habit_id INTEGER, date TEXT, done INTEGER, PK(habit_id,date))`.
+- `transactions(id INTEGER PK, user_id INTEGER, date TEXT, type TEXT, category TEXT, description TEXT NULL, amount REAL CHECK>0, account TEXT NULL, recurring INTEGER)`; `budgets(id INTEGER PK, user_id INTEGER, year INTEGER, month INTEGER, category TEXT, amount REAL CHECK>0, UNIQUE(user_id,year,month,category))`; `subscriptions(id INTEGER PK, user_id INTEGER, service TEXT, category TEXT NULL, cost REAL CHECK>=0, frequency TEXT, next_billing TEXT, active INTEGER)`.
+- `health_logs(id INTEGER PK, user_id INTEGER, date TEXT UNIQUE, weight/sleep/water/energy/mood REAL NULL, notes TEXT NULL)`; `workouts(id INTEGER PK, user_id INTEGER, date TEXT, type TEXT, duration_min INTEGER NULL, intensity TEXT NULL, calories REAL NULL, notes TEXT NULL)`; `learning_entries` / `reading_entries` (CRUD pola sama, tanpa GET detail).
+- `reviews/monthly_reviews/yearly_reviews(id INTEGER PK, user_id INTEGER, week_start/period TEXT UNIQUE, stats TEXT JSON, wins, challenges, lessons, next_focus TEXT NULL)`.
+- `reminders(id INTEGER PK, user_id INTEGER, title TEXT, date TEXT, recurrence TEXT, notes TEXT NULL)`.
 - `trips` + `itinerary_items` + `packing_items` (CASCADE); `decisions` + `decision_options` + `decision_marks` (CASCADE, UNIQUE per opsi+kriteria).
-- `savings_goals`, `assets`, `wishlist`, `documents`, `contacts`.
-- Relasi: users 1-N semua; goals self-cascade; FK via PRAGMA.
+- `savings_goals`, `assets`, `wishlist`, `documents`, `contacts` (pola: id PK, user_id, name/item, amount/date, flags).
+- Relasi: users 1-N semua tabel; goals self-cascade; FK ditegakkan via PRAGMA foreign_keys.
+
+```mermaid
+erDiagram
+  users ||--|{ projects : ""
+  users ||--|{ tasks : ""
+  users ||--|{ goals : ""
+  users ||--|{ milestones : ""
+  users ||--|{ habits : ""
+  habits ||--|{ habit_logs : ""
+  users ||--|{ transactions : ""
+  users ||--|{ budgets : ""
+  users ||--|{ subscriptions : ""
+  users ||--|{ health_logs : ""
+  users ||--|{ workouts : ""
+  users ||--|{ reviews : ""
+  users ||--|{ trips : ""
+  trips ||--|{ itinerary_items : "CASCADE"
+  trips ||--|{ packing_items : "CASCADE"
+  users ||--|{ decisions : ""
+  decisions ||--|{ decision_options : "CASCADE"
+  decision_options ||--|{ decision_marks : ""
+  goals ||--o| goals : "parent self-cascade"
+  users {
+    INTEGER id PK
+    TEXT email UK
+    TEXT password_hash
+  }
+```
 
 ## 4. Aturan Bisnis
 
