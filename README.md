@@ -1,5 +1,9 @@
 # LifeOS Docs
 
+[![docs](https://github.com/RakhaYandra/lifeos-docs/actions/workflows/docs-to-pdf.yml/badge.svg)](https://github.com/RakhaYandra/lifeos-docs/releases)
+
+> Ekosistem: [api](https://github.com/RakhaYandra/lifeos) · [web](https://github.com/RakhaYandra/lifeos-web) · [docs](https://github.com/RakhaYandra/lifeos-docs/releases) · [qa](https://github.com/RakhaYandra/lifeos-qa) · [data](https://github.com/RakhaYandra/lifeos-data) · [ops](https://github.com/RakhaYandra/lifeos-ops)
+
 Dokumentasi resmi sistem **LifeOS** (Bahasa Indonesia).
 
 **LifeOS** adalah personal operating system single-user: 13 area hidup (tugas, goals, habits, keuangan, kesehatan, belajar, travel, keputusan, aset, relasi, review, pengingat, kalender) dalam satu dashboard, satu API, satu database file lokal. Pengguna sekaligus operator: Pemilik. Repo ini adalah sumber dokumen requirements dan desain; kode sumber ada di repo aplikasi (lihat Sumber Fakta).
@@ -31,4 +35,4 @@ Unduh versi formal di halaman [Releases](../../releases).
 | Versi | Tanggal | Isi |
 |---|---|---|
 | v1.0.0 | 2026-09-18 | Rilis awal: BRD, PRD, FSD, SRS + PDF |
-| v1.1.0 | - | Penambahan Guideline v1.0: ID BO/SC, flows PRD, spec pointer FSD, ERD, NFR verifikasi (belum dirilis) |
+| v1.1.0 | 2026-09-20 | Penambahan Guideline v1.0: ID BO/SC, flows PRD, spec pointer FSD, ERD, NFR verifikasi |
